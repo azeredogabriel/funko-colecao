@@ -5,6 +5,8 @@ import { Button, Image, Pressable } from "react-native";
 
 import { ThemedText } from "@/components/themed-text";
 import { ThemedView } from "@/components/themed-view";
+import { useEffect } from "react";
+import { Alert } from "react-native";
 
 export default function HomeScreen() {
   const [items, setItems] = useState<Funko[]>([]);
@@ -41,7 +43,12 @@ export default function HomeScreen() {
             {items.map((item) => (
               <Pressable
                 key={String(item.id)}
-                onPress={() => router.push(`/funko/${item.id}`)}
+                onPress={() =>
+  router.push({
+    pathname: "/funko/[id]",
+    params: { id: String(item.id) },
+  })
+}
                 style={{ marginBottom: 10 }}
               >
                 <ThemedView
@@ -113,3 +120,13 @@ export default function HomeScreen() {
     </ThemedView>
   );
 }
+useEffect(() => {
+  fetch("https://funko-colecao.vercel.app/api/health")
+    .then(res => res.json())
+    .then(data => {
+      Alert.alert("API Response", JSON.stringify(data));
+    })
+    .catch(err => {
+      Alert.alert("Erro", err.message);
+    });
+}, []);

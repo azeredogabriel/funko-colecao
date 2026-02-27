@@ -1,3 +1,3 @@
-export default function handler(req, res) {
-  res.status(200).json({ ok: true });
-}
+module.exports = async (_req, res) => {
+  return res.status(200).json({ ok: true });
+};

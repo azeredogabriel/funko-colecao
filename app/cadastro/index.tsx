@@ -29,6 +29,9 @@ export default function CadastroScreen() {
   const [condicao, setCondicao] = useState("");
   const [observacoes, setObservacoes] = useState("");
 
+  // NOVO: loading do “buscar info”
+  const [loadingAI, setLoadingAI] = useState(false);
+
   useEffect(() => {
     initDb();
 
@@ -84,6 +87,56 @@ export default function CadastroScreen() {
     setFotoUri(result.assets[0].uri);
   }
 
+  // NOVO: buscar informações pela foto chamando a API no Vercel
+  async function buscarInfoPelaFoto() {
+    if (!fotoUri) {
+      Alert.alert("Sem foto 😅", "Tira ou escolhe uma foto primeiro.");
+      return;
+    }
+
+    // Se você criar EXPO_PUBLIC_API_URL no projeto, ele usa.
+    // Senão, cai no seu deploy do Vercel.
+    const API_BASE =
+      process.env.EXPO_PUBLIC_API_URL || "https://funko-colecao.vercel.app";
+
+    try {
+      setLoadingAI(true);
+
+      const form = new FormData();
+      form.append("image", {
+        uri: fotoUri,
+        name: "funko.jpg",
+        type: "image/jpeg",
+      } as any);
+
+      const res = await fetch(`${API_BASE}/api/identify-funko`, {
+        method: "POST",
+        body: form,
+        // NÃO definir Content-Type manualmente em multipart no React Native
+      });
+
+      const data = await res.json().catch(() => ({}));
+
+      if (!res.ok) {
+        Alert.alert("Deu ruim na API 😬", data?.error || `Status ${res.status}`);
+        return;
+      }
+
+      // Ajuste conforme o retorno real da sua API:
+      if (data?.nome) setNome(String(data.nome));
+      if (data?.numero) setNumero(String(data.numero));
+      if (data?.franquia) setFranquia(String(data.franquia));
+      if (data?.condicao) setCondicao(String(data.condicao));
+      if (data?.observacoes) setObservacoes(String(data.observacoes));
+
+      Alert.alert("Pronto! ✅", "Preenchi os campos com base na foto.");
+    } catch (e: any) {
+      Alert.alert("Erro 😵", e?.message || "Falha ao chamar a API.");
+    } finally {
+      setLoadingAI(false);
+    }
+  }
+
   function handleSalvar() {
     if (!canSave) {
       Alert.alert("Faltou coisa aí 😅", "Preencha pelo menos Nome e Número.");
@@ -137,11 +190,29 @@ export default function CadastroScreen() {
           </Pressable>
 
           {fotoUri && (
-            <Pressable onPress={() => setFotoUri(null)} style={[styles.photoButton, styles.photoRemove]}>
+            <Pressable
+              onPress={() => setFotoUri(null)}
+              style={[styles.photoButton, styles.photoRemove]}
+            >
               <Text style={styles.photoButtonText}>Remover</Text>
             </Pressable>
           )}
         </View>
+
+        {/* NOVO: Botão buscar info */}
+        <Pressable
+          disabled={!fotoUri || loadingAI}
+          onPress={buscarInfoPelaFoto}
+          style={({ pressed }) => [
+            styles.button,
+            (!fotoUri || loadingAI) && styles.buttonDisabled,
+            pressed && fotoUri && !loadingAI && styles.buttonPressed,
+          ]}
+        >
+          <Text style={styles.buttonText}>
+            {loadingAI ? "Buscando..." : "Buscar info (pela foto)"}
+          </Text>
+        </Pressable>
 
         {/* Preview */}
         {fotoUri ? (
