@@ -11,25 +11,23 @@ import {
   View,
 } from "react-native";
 
-import {
-  getFunkoById,
-  initDb,
-  insertFunko,
-  updateFunko,
-} from "@/lib/db";
+import { getFunkoById, initDb, insertFunko, updateFunko } from "@/lib/db";
 
 export default function CadastroScreen() {
   const params = useLocalSearchParams<{ id?: string }>();
-  const editId = useMemo(() => (params.id ? Number(params.id) : null), [params.id]);
+  const editId = useMemo(
+    () => (params.id ? Number(params.id) : null),
+    [params.id]
+  );
 
   const [nome, setNome] = useState("");
   const [numero, setNumero] = useState("");
   const [fotoUri, setFotoUri] = useState<string | null>(null);
+  const [fotoBase64, setFotoBase64] = useState<string | null>(null);
   const [franquia, setFranquia] = useState("");
   const [condicao, setCondicao] = useState("");
   const [observacoes, setObservacoes] = useState("");
 
-  // NOVO: loading do “buscar info”
   const [loadingAI, setLoadingAI] = useState(false);
 
   useEffect(() => {
@@ -42,6 +40,12 @@ export default function CadastroScreen() {
       setNome(f.nome ?? "");
       setNumero(f.numero ?? "");
       setFotoUri(f.fotoUri ?? null);
+
+      // Observação: se quiser “buscar info” no modo edição, você precisa
+      // ter base64 também. Como você salva só a URI no DB, base64 não existe
+      // depois. Então no modo edição, “buscar info” só funciona se tirar/selecionar foto de novo.
+      setFotoBase64(null);
+
       setFranquia(f.franquia ?? "");
       setCondicao(f.condicao ?? "");
       setObservacoes(f.observacoes ?? "");
@@ -60,13 +64,16 @@ export default function CadastroScreen() {
     }
 
     const result = await ImagePicker.launchCameraAsync({
-      quality: 0.7,
+      quality: 0.6,
       allowsEditing: true,
+      base64: true,
     });
 
     if (result.canceled) return;
 
-    setFotoUri(result.assets[0].uri);
+    const asset = result.assets[0];
+    setFotoUri(asset.uri);
+    setFotoBase64(asset.base64 ?? null);
   }
 
   async function escolherDaGaleria() {
@@ -77,81 +84,71 @@ export default function CadastroScreen() {
     }
 
     const result = await ImagePicker.launchImageLibraryAsync({
-      quality: 0.7,
+      quality: 0.6,
       allowsEditing: true,
       mediaTypes: ImagePicker.MediaTypeOptions.Images,
+      base64: true,
     });
 
     if (result.canceled) return;
 
-    setFotoUri(result.assets[0].uri);
+    const asset = result.assets[0];
+    setFotoUri(asset.uri);
+    setFotoBase64(asset.base64 ?? null);
   }
 
-  // NOVO: buscar informações pela foto chamando a API no Vercel
- async function buscarInfoPelaFoto() {
-  if (!fotoUri) {
-    Alert.alert("Sem foto 😅", "Tira ou escolhe uma foto primeiro.");
-    return;
+  function removerFoto() {
+    setFotoUri(null);
+    setFotoBase64(null);
   }
 
-  const API_BASE =
-    process.env.EXPO_PUBLIC_API_URL ||
-    "https://funko-colecao-api.vercel.app";
-
-  try {
-    setLoadingAI(true);
-
-    // Converter imagem local para base64
-    const response = await fetch(fotoUri);
-    const blob = await response.blob();
-
-    const reader = new FileReader();
-
-    const base64: string = await new Promise((resolve, reject) => {
-      reader.onerror = reject;
-      reader.onload = () => {
-        const result = reader.result as string;
-        // remove "data:image/jpeg;base64,"
-        resolve(result.split(",")[1]);
-      };
-      reader.readAsDataURL(blob);
-    });
-
-    const res = await fetch(`${API_BASE}/api/identify-funko`, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        imageBase64: base64,
-      }),
-    });
-
-    const text = await res.text();
-
-    let data: any = {};
-    try {
-      data = JSON.parse(text);
-    } catch {
-      throw new Error(text);
-    }
-
-    if (!res.ok) {
-      Alert.alert("Erro na API 😬", data?.error || `Status ${res.status}`);
+  async function buscarInfoPelaFoto() {
+    if (!fotoUri || !fotoBase64) {
+      Alert.alert(
+        "Sem foto/base64 😅",
+        "Tira ou escolhe uma foto primeiro (a base64 vem junto)."
+      );
       return;
     }
 
-    if (data?.nome) setNome(String(data.nome));
-    if (data?.numero) setNumero(String(data.numero));
-    if (data?.franquia) setFranquia(String(data.franquia));
+    const API_BASE =
+      process.env.EXPO_PUBLIC_API_URL || "https://funko-colecao-api.vercel.app";
 
-    Alert.alert("Pronto! ✅", "Preenchi os campos com base na foto.");
-  } catch (e: any) {
-    Alert.alert("Erro 😵", e?.message || "Falha ao chamar a API.");
-  } finally {
-    setLoadingAI(false);
+    try {
+      setLoadingAI(true);
+
+      const res = await fetch(`${API_BASE}/api/identify-funko`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ imageBase64: fotoBase64 }),
+      });
+
+      const text = await res.text();
+
+      let data: any = null;
+      try {
+        data = JSON.parse(text);
+      } catch {
+        // Se caiu aqui, a API devolveu TEXTO/HTML. Mostra o começo pra debugar.
+        throw new Error(text.slice(0, 400));
+      }
+
+      if (!res.ok) {
+        Alert.alert("Deu ruim na API 😬", data?.error || `Status ${res.status}`);
+        return;
+      }
+
+      if (data?.nome) setNome(String(data.nome));
+      if (data?.numero) setNumero(String(data.numero));
+      if (data?.franquia) setFranquia(String(data.franquia));
+
+      Alert.alert("Pronto! ✅", "Preenchi os campos com base na foto.");
+    } catch (e: any) {
+      Alert.alert("Erro 😵", e?.message || "Falha ao chamar a API.");
+    } finally {
+      setLoadingAI(false);
+    }
   }
-}
 
   function handleSalvar() {
     if (!canSave) {
@@ -178,10 +175,10 @@ export default function CadastroScreen() {
     insertFunko(payload);
     Alert.alert("Salvo! ✅", `Funko: ${payload.nome} (#${payload.numero})`);
 
-    // limpa só quando é cadastro novo
     setNome("");
     setNumero("");
     setFotoUri(null);
+    setFotoBase64(null);
     setFranquia("");
     setCondicao("");
     setObservacoes("");
@@ -195,7 +192,6 @@ export default function CadastroScreen() {
       <Text style={styles.subtitle}>Agora com foto: app com cara de produto 😎</Text>
 
       <View style={styles.form}>
-        {/* Botões de foto */}
         <View style={styles.photoRow}>
           <Pressable onPress={tirarFoto} style={styles.photoButton}>
             <Text style={styles.photoButtonText}>Tirar foto</Text>
@@ -206,22 +202,18 @@ export default function CadastroScreen() {
           </Pressable>
 
           {fotoUri && (
-            <Pressable
-              onPress={() => setFotoUri(null)}
-              style={[styles.photoButton, styles.photoRemove]}
-            >
+            <Pressable onPress={removerFoto} style={[styles.photoButton, styles.photoRemove]}>
               <Text style={styles.photoButtonText}>Remover</Text>
             </Pressable>
           )}
         </View>
 
-        {/* NOVO: Botão buscar info */}
         <Pressable
-          disabled={!fotoUri || loadingAI}
+          disabled={!fotoUri || !fotoBase64 || loadingAI}
           onPress={buscarInfoPelaFoto}
           style={({ pressed }) => [
             styles.button,
-            (!fotoUri || loadingAI) && styles.buttonDisabled,
+            (!fotoUri || !fotoBase64 || loadingAI) && styles.buttonDisabled,
             pressed && fotoUri && !loadingAI && styles.buttonPressed,
           ]}
         >
@@ -230,7 +222,6 @@ export default function CadastroScreen() {
           </Text>
         </Pressable>
 
-        {/* Preview */}
         {fotoUri ? (
           <Image source={{ uri: fotoUri }} style={styles.photoPreview} />
         ) : (
@@ -245,7 +236,7 @@ export default function CadastroScreen() {
           label="Número *"
           value={numero}
           onChangeText={setNumero}
-          placeholder="Ex: 03"
+          placeholder="Ex: 322"
           keyboardType="numeric"
         />
 
@@ -316,7 +307,6 @@ const styles = StyleSheet.create({
   container: { flex: 1, padding: 16, backgroundColor: "#0b0b0b" },
   title: { fontSize: 26, fontWeight: "900", color: "#fff", marginBottom: 6 },
   subtitle: { color: "#cfcfcf", opacity: 0.9, marginBottom: 12 },
-
   form: { gap: 12 },
 
   photoRow: { flexDirection: "row", gap: 10, flexWrap: "wrap" },
