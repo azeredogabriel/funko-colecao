@@ -88,54 +88,70 @@ export default function CadastroScreen() {
   }
 
   // NOVO: buscar informações pela foto chamando a API no Vercel
-  async function buscarInfoPelaFoto() {
-    if (!fotoUri) {
-      Alert.alert("Sem foto 😅", "Tira ou escolhe uma foto primeiro.");
+ async function buscarInfoPelaFoto() {
+  if (!fotoUri) {
+    Alert.alert("Sem foto 😅", "Tira ou escolhe uma foto primeiro.");
+    return;
+  }
+
+  const API_BASE =
+    process.env.EXPO_PUBLIC_API_URL ||
+    "https://funko-colecao-api.vercel.app";
+
+  try {
+    setLoadingAI(true);
+
+    // Converter imagem local para base64
+    const response = await fetch(fotoUri);
+    const blob = await response.blob();
+
+    const reader = new FileReader();
+
+    const base64: string = await new Promise((resolve, reject) => {
+      reader.onerror = reject;
+      reader.onload = () => {
+        const result = reader.result as string;
+        // remove "data:image/jpeg;base64,"
+        resolve(result.split(",")[1]);
+      };
+      reader.readAsDataURL(blob);
+    });
+
+    const res = await fetch(`${API_BASE}/api/identify-funko`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        imageBase64: base64,
+      }),
+    });
+
+    const text = await res.text();
+
+    let data: any = {};
+    try {
+      data = JSON.parse(text);
+    } catch {
+      throw new Error(text);
+    }
+
+    if (!res.ok) {
+      Alert.alert("Erro na API 😬", data?.error || `Status ${res.status}`);
       return;
     }
 
-    // Se você criar EXPO_PUBLIC_API_URL no projeto, ele usa.
-    // Senão, cai no seu deploy do Vercel.
-    const API_BASE =
-      process.env.EXPO_PUBLIC_API_URL || "https://funko-colecao.vercel.app";
+    if (data?.nome) setNome(String(data.nome));
+    if (data?.numero) setNumero(String(data.numero));
+    if (data?.franquia) setFranquia(String(data.franquia));
 
-    try {
-      setLoadingAI(true);
-
-      const form = new FormData();
-      form.append("image", {
-        uri: fotoUri,
-        name: "funko.jpg",
-        type: "image/jpeg",
-      } as any);
-
-      const res = await fetch(`${API_BASE}/api/identify-funko`, {
-        method: "POST",
-        body: form,
-        // NÃO definir Content-Type manualmente em multipart no React Native
-      });
-
-      const data = await res.json().catch(() => ({}));
-
-      if (!res.ok) {
-        Alert.alert("Deu ruim na API 😬", data?.error || `Status ${res.status}`);
-        return;
-      }
-
-      // Ajuste conforme o retorno real da sua API:
-      if (data?.nome) setNome(String(data.nome));
-      if (data?.numero) setNumero(String(data.numero));
-      if (data?.franquia) setFranquia(String(data.franquia));
-      if (data?.condicao) setCondicao(String(data.condicao));
-      if (data?.observacoes) setObservacoes(String(data.observacoes));
-
-      Alert.alert("Pronto! ✅", "Preenchi os campos com base na foto.");
-    } catch (e: any) {
-      Alert.alert("Erro 😵", e?.message || "Falha ao chamar a API.");
-    } finally {
-      setLoadingAI(false);
-    }
+    Alert.alert("Pronto! ✅", "Preenchi os campos com base na foto.");
+  } catch (e: any) {
+    Alert.alert("Erro 😵", e?.message || "Falha ao chamar a API.");
+  } finally {
+    setLoadingAI(false);
   }
+}
 
   function handleSalvar() {
     if (!canSave) {
